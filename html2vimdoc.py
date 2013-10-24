@@ -171,10 +171,7 @@ def markdown_to_html(text, markdown_extensions):
     # We import the markdown module here so that the markdown module is not
     # required to use html2vimdoc when the input is HTML.
     from markdown import markdown
-    # The Python Markdown module only accepts Unicode and ASCII strings, but we
-    # don't know what the encoding of the Markdown text is. BeautifulSoup comes
-    # to the rescue with the aptly named UnicodeDammit class :-).
-    return markdown(UnicodeDammit(text).unicode, extensions=markdown_extensions)
+    return markdown(text.decode('utf8'), extensions=markdown_extensions)
 
 def html2vimdoc(html, title='', filename='', url='', content_selector='#content', selectors_to_ignore=[], modeline='vim: ft=help'):
     """
