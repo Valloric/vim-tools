@@ -4,7 +4,7 @@
 # Publish Vim plug-ins to GitHub and Vim Online.
 #
 # Author: Peter Odding <peter@peterodding.com>
-# Last Change: June 22, 2013
+# Last Change: April 2, 2015
 # URL: http://peterodding.com/code/vim/tools/
 #
 # TODO Automatically run tests before release? (first have to start writing them!)
@@ -517,6 +517,7 @@ class VimPluginManager:
         self.check_gitignore_file(plugin_name)
         self.update_vam_addon_info(plugin_name)
         self.update_copyright(plugin_name)
+        self.update_install_instructions(plugin_name)
         self.run_vimdoctool(plugin_name)
         self.run_html2vimdoc(plugin_name)
 
@@ -525,18 +526,17 @@ class VimPluginManager:
         Make sure .gitignore excludes doc/tags.
         """
         self.logger.verbose("Checking if .gitignore excludes doc/tags ..")
-        directory = self.plugins[plugin_name]['directory']
         # Make sure there is an initial commit, otherwise git on Ubuntu 10.04
         # will error out with "fatal: No HEAD commit to compare with (yet)".
         self.logger.verbose("Checking whether there is an initial commit ..")
         try:
-            run('git', 'rev-parse', 'HEAD', capture=True)
+            run('git', 'rev-parse', 'HEAD', silent=True)
         except ExternalCommandFailed:
             self.logger.warn("No initial commit yet, can't check .gitignore!")
             return
         # There is an initial commit: We can check the .gitignore file!
         if ('doc/tags' not in self.get_committed_contents(plugin_name, '.gitignore').splitlines() and
-                '+doc/tags' not in run('git', 'diff', '--cached', '.gitignore', cwd=directory, capture=True).splitlines()):
+            'doc/tags' not in self.get_staged_contents(plugin_name, '.gitignore').splitlines()):
             self.logger.fatal("The .gitignore file does not exclude doc/tags! Please resolve before committing.")
             sys.exit(1)
 
@@ -551,7 +551,7 @@ class VimPluginManager:
         addon_info = dict(name=plugin_name.split('/')[-1],
                           homepage=self.plugins[plugin_name]['homepage'],
                           dependencies=dict())
-        if plugin_name != 'xolox/vim-misc':
+        if self.depends_on_vim_misc(plugin_name):
             addon_info['dependencies']['vim-misc'] = dict()
         if 'script-id' in self.plugins[plugin_name]:
             addon_info['vim_script_nr'] = int(self.plugins[plugin_name]['script-id'])
@@ -585,6 +585,102 @@ class VimPluginManager:
                     handle.write(u'%s\n' % line)
             run('git', 'add', 'README.md', cwd=directory)
 
+    def update_install_instructions(self, plugin_name):
+        """
+        Generate ``INSTALL.md``.
+
+        Over time I've learned that most people perusing GitHub don't read
+        through the ``README.md`` files in my projects before trying them out,
+        so I moved the installation instructions to separate (easy to
+        recognize) files called ``INSTALL.md`` to avoid people missing the
+        installation instructions and submitting bug reports about things that
+        are clearly documented.
+
+        However there are more similarities than differences between the
+        installation instructions for my 10+ Vim plug-ins and I got sick of
+        propagating common changes between git repositories manually, so
+        eventually I wrote the following code that alleviates me from the
+        tedium of keeping these files in sync.
+        """
+        directory = self.plugins[plugin_name]['directory']
+        install_file = os.path.join(directory, 'INSTALL.md')
+        self.logger.info("Generating %s ..", install_file)
+        repository_name = plugin_name.split('/')[-1]
+        vim_misc_required = self.depends_on_vim_misc(plugin_name)
+        instructions = ["# Installation instructions"]
+        if vim_misc_required:
+            instructions.append(compact("""
+                *Please note that the {name} plug-in requires my vim-misc
+                plug-in which is separately distributed.*
+            """, name=repository_name))
+        instructions.append(compact("""
+            There are two ways to install the {name} plug-in and it's up to you
+            which you prefer, both options are explained below. Please note
+            that below are generic installation instructions while some Vim
+            plug-ins may have external dependencies, please refer to the
+            plug-in's [readme](README.md) for details.
+        """, name=repository_name))
+        instructions.append(compact("""
+            ## Installation using {zip_archives}
+        """, zip_archives="ZIP archives" if vim_misc_required else "a ZIP archive"))
+        base_download_url = "http://peterodding.com/code/vim/downloads"
+        download_link = compact("""
+            [{name}]({base_url}/{zip_file})
+        """,  name=repository_name,
+              base_url=base_download_url,
+              zip_file=self.plugins[plugin_name]['zip-file'])
+        if vim_misc_required:
+            zip_archives = compact("""
+                ZIP archives of the {download_link} and
+                [vim-misc]({base_url}/misc.zip) plug-ins
+            """, download_link=download_link,
+                 base_url=base_download_url)
+        else:
+            zip_archives = compact("""
+                ZIP archive of the {download_link} plug-in
+            """, download_link=download_link)
+        instructions.append(compact(r"""
+            Unzip the most recent {zip_archives} inside your Vim profile
+            directory (usually this is `~/.vim` on UNIX and
+            `%USERPROFILE%\vimfiles` on Windows), restart Vim and execute the
+            command `:helptags ~/.vim/doc` (use `:helptags ~\vimfiles\doc`
+            instead on Windows).
+        """, zip_archives=zip_archives))
+        instructions.append(compact("""
+            If you get warnings about overwriting existing files while
+            unpacking the {archives} you probably don't need to worry about
+            this because it's most likely caused by files like `README.md`,
+            `INSTALL.md` and `addon-info.json`. If these files bother you then
+            you can remove them after unpacking the {archives}, they are not
+            required to use the plug-in.
+        """, archives="ZIP archives" if vim_misc_required else "ZIP archive"))
+        instructions.append("## Installation using a Vim plug-in manager")
+        repo_link = compact("""
+            [{name}](https://github.com/{github_repo})
+        """, name=repository_name,
+             github_repo=plugin_name)
+        if vim_misc_required:
+            git_repos = compact("""
+                {repo_link} and [vim-misc](https://github.com/xolox/vim-misc)
+                plug-ins using local clones of the git repositories
+            """, repo_link=repo_link)
+        else:
+            git_repos = compact("""
+                {repo_link} plug-in using a local clone of the git repository
+            """, repo_link=repo_link)
+        instructions.append(compact("""
+            If you prefer you can also use
+            [Pathogen](http://www.vim.org/scripts/script.php?script_id=2332),
+            [Vundle](https://github.com/gmarik/vundle) or a similar tool to
+            install and update the {git_repos}. This takes a bit of work to
+            set up the first time but it makes updating much easier, and it
+            keeps each plug-in in its own directory which helps to keep your
+            Vim profile uncluttered.
+        """, git_repos=git_repos))
+        with open(install_file, 'w') as handle:
+            handle.write("\n\n".join(instructions) + "\n")
+        run('git', 'add', 'INSTALL.md', cwd=directory)
+
     def run_vimdoctool(self, plugin_name):
         """
         Update the function documentation embedded in README.md using the
@@ -593,9 +689,11 @@ class VimPluginManager:
         directory = self.plugins[plugin_name]['directory']
         readme = os.path.join(directory, 'README.md')
         self.logger.info("Updating embedded documentation in %s ..", readme)
-        vimdoctool.embed_documentation(directory, readme, startlevel=3,
-                                       vfs=GitVFS(directory))
-        run('git', 'add', 'README.md', cwd=directory)
+        if vimdoctool.embed_documentation(directory, readme,
+                                          startlevel=3,
+                                          vfs=GitVFS(directory)):
+            # Only `git add' the file when changes were made.
+            run('git', 'add', 'README.md', cwd=directory)
 
     def run_html2vimdoc(self, plugin_name):
         """
@@ -603,13 +701,13 @@ class VimPluginManager:
         of a Vim plug-in using the html2vimdoc.py Python module.
         """
         directory = self.plugins[plugin_name]['directory']
+        vfs = GitVFS(directory)
         readme = os.path.join(directory, 'README.md')
         help_dir = os.path.join(directory, 'doc')
         help_file = self.plugins[plugin_name]['help-file']
         help_path = os.path.join(help_dir, help_file)
         self.logger.info("Converting %s to %s ..", readme, help_path)
-        with open(readme) as handle:
-            markdown = handle.read()
+        markdown = vfs.read('README.md')
         html = html2vimdoc.markdown_to_html(markdown, [])
         vimdoc = html2vimdoc.html2vimdoc(html, filename=help_file)
         if not os.path.isdir(help_dir):
@@ -617,6 +715,31 @@ class VimPluginManager:
         with codecs.open(help_path, 'w', 'utf-8') as handle:
             handle.write("%s\n" % vimdoc)
         run('git', 'add', help_path, cwd=directory)
+
+    def depends_on_vim_misc(self, plugin_name):
+        """
+        Check whether a Vim plug-in depends on the vim-misc plug-in.
+
+        This method inspects the ``*.vim`` files in the git repository for
+        references to ``xolox#misc#*`` which is a simple and naive way to check
+        for the vim-misc dependency. It can be fooled (it's not really aware of
+        Vim script syntax rules) but it suffices for me.
+        """
+        if plugin_name != 'xolox/vim-misc':
+            # Use the GitVFS class to scan the repository without getting
+            # confused by uncommitted changes or files.
+            directory = self.plugins[plugin_name]['directory']
+            vfs = GitVFS(directory)
+            for filename in vfs.list():
+                if filename.endswith('.vim'):
+                    contents = vfs.read(filename)
+                    for line in contents.splitlines():
+                        line = line.strip()
+                        # Ignore comments (lines starting with a double quote).
+                        if not line.startswith('"'):
+                            if 'xolox#misc#' in contents:
+                                return True
+        return False
 
     ## Post-commit hooks.
 
@@ -712,7 +835,16 @@ class VimPluginManager:
         """
         directory = self.plugins[plugin_name]['directory']
         filename = os.path.relpath(os.path.abspath(filename), os.path.abspath(directory))
-        return run('git', 'show', '%s:%s' % (revision, filename), cwd=directory, capture=True)
+        try:
+            return run('git', 'show', '%s:%s' % (revision, filename), cwd=directory, capture=True, silent=True)
+        except ExternalCommandFailed:
+            return ''
+
+    def get_staged_contents(self, plugin_name, filename):
+        """
+        Get the staged contents of a file.
+        """
+        return self.get_committed_contents(plugin_name, filename, revision='')
 
     def find_version_in_repository(self, plugin_name, branch_name='master'):
         """
@@ -751,6 +883,8 @@ class ExternalCommandFailed(Exception):
         super(ExternalCommandFailed, self).__init__(msg)
         self.command = command
 
+# TODO Merge GitVFS into vcs-repo-mgr? (don't forget about get_committed_contents() and get_staged_contents())
+
 class GitVFS(object):
 
     """
@@ -770,6 +904,8 @@ class GitVFS(object):
     def read(self, filename):
         return run('git', 'show', ':%s' % filename, cwd=self.root, capture=True)
 
+# FIXME Switch to executor.execute() once vim-plugin-manager is a proper Python package.
+
 def run(*args, **kw):
     """
     Run an external process, make sure it exited with a zero return code and
@@ -781,6 +917,10 @@ def run(*args, **kw):
         context['stdin'] = subprocess.PIPE
     if kw.get('capture', False):
         context['stdout'] = subprocess.PIPE
+    if kw.get('silent', False):
+        if 'stdout' not in context:
+            context['stdout'] = subprocess.PIPE
+        context['stderr'] = subprocess.PIPE
     process = subprocess.Popen(args, **context)
     stdout, stderr = process.communicate(input=kw.get('input', None))
     if kw.get('check', True) and process.returncode != 0:
@@ -795,6 +935,17 @@ def cp1252_to_utf8(text):
     I want UTF-8 (e.g. on the console and in the log file).
     """
     return text.decode('windows-1252').encode('utf-8')
+
+def compact(text, **kw):
+    """
+    Compact whitespace in a string and format any keyword arguments into the
+    resulting string.
+
+    :param text: The text to compact (a string).
+    :param kw: Any keyword arguments to apply using :py:func:`str.format()`.
+    :returns: The compacted, formatted string.
+    """
+    return ' '.join(text.split()).format(**kw)
 
 if __name__ == '__main__':
     main()
