@@ -82,8 +82,8 @@ SHIFT_WIDTH = 2
 
 # Initialize the logging subsystem.
 logger = logging.getLogger('html2vimdoc')
+coloredlogs.install(level='DEBUG')
 logger.setLevel(logging.INFO)
-logger.addHandler(coloredlogs.ColoredStreamHandler(show_name=True))
 
 # Mapping of HTML element names to custom Node types.
 name_to_type_mapping = {}
